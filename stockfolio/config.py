@@ -44,7 +44,7 @@ def cash_rules(cfg: dict) -> list[dict]:
             cash_pct = float(rule["现金"])
         except (KeyError, TypeError, ValueError):
             raise ValueError(
-                f"{label} 格式无效：需要 {温度, 名称, 现金} 三个字段，且温度/现金为数字"
+                f"{label} 格式无效：需要 {{温度, 名称, 现金}} 三个字段，且温度/现金为数字"
             ) from None
         if not 0.0 <= temperature <= 100.0:
             raise ValueError(f"{label}.温度 应在 0~100，实际为 {temperature}")

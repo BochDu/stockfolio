@@ -291,7 +291,6 @@ def _summary_row(parent: tk.Frame, summary: dict | None, view: dict | None = Non
     pnl = summary.get("整体盈亏pct")
     pnl_color = MINT if pnl is not None and pnl >= 0 else LOSS if pnl is not None else MUTED
     target = summary.get("目标配额")
-    plan = (view or {}).get("建议")
     ratio_value = DASH
     ratio_color = MUTED
     current_pct = (view or {}).get("当前现金pct")

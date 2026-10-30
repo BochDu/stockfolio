@@ -300,7 +300,15 @@ class CashRulesConfigTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             config.cash_rules({})
         with self.assertRaises(ValueError):
-            config.cash_rules({"现金规则": [{"温度": 0}]})  # 缺名称/现金
+            config.cash_rules({"现金规则": [{"温度": 0, "名称": "a", "现金": 0}, {"温度": 50}]})  # 第二锚点缺字段
+
+    def test_rule_missing_fields_message_lists_fields(self):
+        """缺字段的锚点必须报 ValueError（含字段清单），而非 NameError。"""
+        with self.assertRaises(ValueError) as ctx:
+            config.cash_rules({"现金规则": [{"温度": 0, "名称": "a", "现金": 0}, {"温度": 50}]})
+        self.assertIn("温度", str(ctx.exception))
+        self.assertIn("名称", str(ctx.exception))
+        self.assertIn("现金", str(ctx.exception))
         with self.assertRaises(ValueError):
             config.cash_rules({"现金规则": "bad"})
         with self.assertRaises(ValueError):
