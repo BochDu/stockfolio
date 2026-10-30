@@ -1,0 +1,4 @@
+include README.md
+include DATA_FORMAT.md
+include example_book.json
+recursive-include tests *.py
