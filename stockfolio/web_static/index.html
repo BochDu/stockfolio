@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#070b14">
+  <meta name="color-scheme" content="dark">
+  <title>Stockfolio</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="accent-bar"></div>
+  <header class="header">
+    <div class="title-row">
+      <span class="brand">STOCK</span>
+      <span class="spacer"></span>
+      <span id="status" class="status muted"></span>
+      <div class="actions">
+        <form class="inline-form" method="post" action="/logout">
+          <button class="btn" type="submit" id="logout-btn">退出</button>
+        </form>
+        <button class="btn lang" type="button" id="lang-btn">EN</button>
+        <button class="btn" type="button" id="refresh-btn">刷新</button>
+      </div>
+    </div>
+    <h1 class="page-title" id="page-title"></h1>
+  </header>
+  <main id="app">
+    <section class="summary-row" id="summary-row"></section>
+    <section class="valuation-row" id="valuation-row"></section>
+    <section class="charts-row" id="charts-row"></section>
+    <section id="categories"></section>
+  </main>
+  <div class="notice hidden" id="notice" role="status"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

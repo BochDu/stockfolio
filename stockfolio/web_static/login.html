@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#070b14">
+  <meta name="color-scheme" content="dark">
+  <meta name="robots" content="noindex">
+  <title>Stockfolio · {{title}}</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="login-body">
+  <div class="accent-bar"></div>
+  <main class="login-card">
+    <div class="login-top">
+      <span class="brand">STOCK</span>
+      <div class="actions">
+        <a class="btn lang" href="{{toggle_href}}">{{toggle_label}}</a>
+      </div>
+    </div>
+    <h1>{{heading}}</h1>
+    <p class="muted">{{hint}}</p>
+    {{error}}
+    <form method="post" action="{{action}}">
+      <input type="password" name="password" placeholder="{{placeholder}}" aria-label="{{placeholder}}"
+             autocomplete="current-password" autofocus required>
+      <button class="btn primary" type="submit">{{submit}}</button>
+    </form>
+  </main>
+</body>
+</html>

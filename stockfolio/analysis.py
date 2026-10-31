@@ -21,7 +21,7 @@ HEAT_BANDS = (
 def resolve_price(holding: dict, quotes: dict[str, float | None]) -> float | None:
     code = holding["代码"]
     q = quotes.get(code)
-    if q is not None:
+    if q is not None and float(q) > 0:
         return float(q)
     manual = holding.get("现价")
     if manual is not None:
@@ -105,6 +105,9 @@ def summarize(
         cash_cny += float(amount) * rate
     cash_w = cash_cny / 10000.0
 
+    quota = book.get("目标总仓")
+    target_w = float(quota) if quota is not None else None
+
     categories = []
     for cat in book["大类"]:
         name = cat["名称"]
@@ -112,14 +115,17 @@ def summarize(
         current = sum(
             r["市值_本位"] for r in active if r["大类"] == name
         ) / 10000.0
-        target = total_w * ratio
+        target = target_w * ratio if target_w is not None else None
+        share = (current / total_w * 100.0) if total_w > 0 else None
         categories.append(
             {
                 "名称": name,
                 "比例": ratio,
-                "配额仓": round(target, 2),
+                "目标仓": None if target is None else round(target, 2),
                 "当前仓": round(current, 2),
-                "操作": action_text(target, current, lang),
+                "当前占比": None if share is None else round(share, 1),
+                "平衡": None if target is None else round(target - current, 2),
+                "操作": None if target is None else action_text(target, current, lang),
             }
         )
 
@@ -127,13 +133,9 @@ def summarize(
     if total_cost > 0:
         pnl = round((total_mv - total_cost) / total_cost * 100, 2)
 
-    quota = book.get("配额总仓")
-    if quota is None:
-        quota = book.get("配额总仓_2030")  # 兼容旧字段
-
     return {
         "本位币": str(book.get("本位币") or "CNY"),
-        "目标配额": quota,
+        "目标总仓": quota,
         "当前总仓_w": round(total_w, 2),
         "当前现金_w": round(cash_w, 2),
         "整体盈亏pct": pnl,
@@ -460,6 +462,6 @@ def valuation_view(
     view["当前现金pct"] = round(100.0 - current_stock, 1)
     view["当前比例"] = ratio_text(current_stock, 100.0 - current_stock)
     view["操作"] = action_text(target_stock, total, lang)
-    view["配额股票w"] = round(target_stock, 2)
+    view["目标股票w"] = round(target_stock, 2)
     view["当前股票w"] = round(total, 2)
     return view

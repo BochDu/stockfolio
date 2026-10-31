@@ -109,7 +109,7 @@ def relocalize_view(view: dict | None, book: dict, lang: str) -> dict | None:
         if rebuilt is not None:
             view["建议"] = rebuilt
     if view.get("操作"):
-        view["操作"] = action_text(view["配额股票w"], view["当前股票w"], lang)
+        view["操作"] = action_text(view["目标股票w"], view["当前股票w"], lang)
     return view
 
 
@@ -290,7 +290,7 @@ def _summary_row(parent: tk.Frame, summary: dict | None, view: dict | None = Non
     unit = unit_w(lang)
     pnl = summary.get("整体盈亏pct")
     pnl_color = MINT if pnl is not None and pnl >= 0 else LOSS if pnl is not None else MUTED
-    target = summary.get("目标配额")
+    target = summary.get("目标总仓")
     ratio_value = DASH
     ratio_color = MUTED
     current_pct = (view or {}).get("当前现金pct")
@@ -298,7 +298,7 @@ def _summary_row(parent: tk.Frame, summary: dict | None, view: dict | None = Non
         ratio_value = f"{current_pct:.1f}%"
         ratio_color = _heat_color((view or {}).get("温度"))
     metrics = (
-        (t("目标配额", lang), f"{fmt_w(target, lang)} {unit}" if target is not None else DASH, GOLD),
+        (t("目标总仓", lang), f"{fmt_w(target, lang)} {unit}" if target is not None else DASH, GOLD),
         (t("当前总仓", lang), f"{fmt_w(summary.get('当前总仓_w'), lang)} {unit}", CYAN),
         (t("当前现金", lang), f"{fmt_w(summary.get('当前现金_w'), lang)} {unit}", CYAN),
         (t("现金占比", lang), ratio_value, ratio_color),
@@ -325,6 +325,22 @@ def _summary_row(parent: tk.Frame, summary: dict | None, view: dict | None = Non
         note = tk.Label(
             parent,
             text=t("现金未折算：", lang) + _join(skipped, lang),
+            bg=BG,
+            fg=MUTED,
+            font=(FONT, 9),
+            justify="left",
+            anchor="w",
+        )
+        note.pack(anchor="w", padx=26, pady=(2, 0))
+        _auto_wrap(note, reserve=26)
+
+    if summary.get("报价失败"):
+        note = tk.Label(
+            parent,
+            text=t(
+                "报价不全：部分持仓未取到价格，市值、现金占比与平衡建议仅按已取价部分计算。",
+                lang,
+            ),
             bg=BG,
             fg=MUTED,
             font=(FONT, 9),
@@ -459,23 +475,33 @@ def _category_blocks(
             font=(FONT, 12, "bold"),
         ).pack(side="left")
         if meta is None:
-            detail = f"配额 {DASH}    当前 {DASH}    {DASH}"
+            detail = (
+                f"{t('目标', lang)} {DASH}    {t('持仓', lang)} {DASH}    "
+                f"{t('占比', lang)} {DASH}    {t('平衡', lang)} {DASH}"
+            )
             detail_fg = MUTED
         else:
             unit = unit_w(lang)
-            if lang == LANG_EN:
-                detail = (
-                    f"Quota {fmt_w(meta['配额仓'], lang)} {unit}    "
-                    f"Current {fmt_w(meta['当前仓'], lang)} {unit}    "
-                    f"{meta['操作']}"
-                )
+            target_w = meta.get("目标仓")
+            target_text = DASH if target_w is None else f"{fmt_w(target_w, lang)} {unit}"
+            share = meta.get("当前占比")
+            share_text = DASH if share is None else f"{share:.1f}%"
+            balance = meta.get("平衡")
+            if balance is None:
+                balance_text = DASH
+                detail_fg = MUTED
             else:
-                detail = (
-                    f"配额 {fmt_w(meta['配额仓'], lang)} {unit}    "
-                    f"当前 {fmt_w(meta['当前仓'], lang)} {unit}    "
-                    f"{meta['操作']}"
+                sign = "+" if balance > 0 else ""
+                balance_text = f"{sign}{to_display(balance, lang):.1f} {unit}"
+                detail_fg = (
+                    MINT if balance > 0.05 else LOSS if balance < -0.05 else MUTED
                 )
-            detail_fg = _action_color(meta["操作"])
+            detail = (
+                f"{t('目标', lang)} {target_text}    "
+                f"{t('持仓', lang)} {fmt_w(meta['当前仓'], lang)} {unit}    "
+                f"{t('占比', lang)} {share_text}    "
+                f"{t('平衡', lang)} {balance_text}"
+            )
         tk.Label(head, text=detail, bg=PANEL, fg=detail_fg, font=(MONO, 10)).pack(side="right")
 
         cat_heat_info = heat_lookup.get(name)
@@ -495,9 +521,9 @@ def _category_blocks(
             tk.Label(
                 sub,
                 text=(
-                    f"    配额占比 {ratio * 100:.0f}%    覆盖 {cat_heat_info.get('样本', DASH)} 只"
+                    f"    覆盖 {cat_heat_info.get('样本', DASH)} 只"
                     if lang == LANG_ZH
-                    else f"    Quota {ratio * 100:.0f}%    Coverage {cat_heat_info.get('样本', DASH)}"
+                    else f"    Coverage {cat_heat_info.get('样本', DASH)}"
                 ),
                 bg=PANEL,
                 fg=MUTED,

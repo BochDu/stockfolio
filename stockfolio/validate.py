@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 
@@ -30,6 +31,9 @@ def _num(
         number = float(value)
     except (TypeError, ValueError):
         errors.append(f"{label} 不是数字: {value!r}")
+        return None
+    if not math.isfinite(number):
+        errors.append(f"{label} 不是有限数字: {value!r}")
         return None
     if minimum is not None and number < minimum:
         errors.append(f"{label} 小于 {minimum}: {number}")
@@ -62,7 +66,7 @@ def validate_book(book: dict) -> list[str]:
     if not isinstance(book, dict):
         return ["持仓 JSON 顶层必须是对象"]
 
-    # ---- 标题 / 语言 / 本位币 / 配额 ----
+    # ---- 标题 / 语言 / 本位币 / 目标总仓 ----
     title = book.get("标题")
     if not isinstance(title, str) or not title.strip():
         errors.append("标题 缺失或为空")
@@ -75,11 +79,9 @@ def validate_book(book: dict) -> list[str]:
     if base not in SUPPORTED_CURRENCIES:
         errors.append(f"本位币 不支持: {base}（支持: {'、'.join(SUPPORTED_CURRENCIES)}）")
 
-    quota = book.get("配额总仓")
-    if quota is None:
-        quota = book.get("配额总仓_2030")
+    quota = book.get("目标总仓")
     if quota is not None:
-        _num(quota, "配额总仓", errors, minimum=0)
+        _num(quota, "目标总仓", errors, minimum=0)
 
     # ---- 现金 ----
     cash = book.get("现金")
@@ -201,6 +203,8 @@ def validate_file(path) -> list[str]:
             book = json.load(f)
     except json.JSONDecodeError as exc:
         return [f"JSON 解析失败: {exc}"]
+    except UnicodeDecodeError as exc:
+        return [f"文件不是 UTF-8 编码: {exc}"]
     except OSError as exc:
         return [f"无法读取文件: {exc}"]
     return validate_book(book)

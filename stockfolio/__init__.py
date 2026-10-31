@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import analysis, config, gui, i18n, market
+from . import analysis, config, i18n, market
 from .analysis import (
     enrich_holdings,
     holding_heats,
@@ -40,7 +40,6 @@ from .market import (
     resolve_base,
 )
 from .validate import validate_book, validate_file
-from .gui import show
 
 __version__ = "0.1.0"
 
@@ -48,6 +47,8 @@ __all__ = [
     "DEFAULT_VALUATION",
     "analysis",
     "cash_rules",
+    "check_book",
+    "clear_password",
     "config",
     "enrich_holdings",
     "fetch_all",
@@ -55,7 +56,6 @@ __all__ = [
     "fetch_quote",
     "fetch_rates",
     "fetch_sina_list",
-    "gui",
     "holding_heats",
     "benchmark_heats",
     "i18n",
@@ -65,6 +65,8 @@ __all__ = [
     "offline_quotes_rates",
     "resolve_base",
     "run_book",
+    "serve",
+    "set_password",
     "show",
     "smoke",
     "summarize",
@@ -73,6 +75,34 @@ __all__ = [
     "valuation_config",
     "valuation_view",
 ]
+
+
+def show(*args, **kwargs):
+    """打开 Tk 界面。延迟导入，缺少 tkinter 的服务器也能启动 Web 模式。"""
+    from .gui import show as _show
+
+    return _show(*args, **kwargs)
+
+
+def serve(*args, **kwargs):
+    """启动 Web 服务。延迟导入，避免引入 Tkinter 依赖。"""
+    from .web import serve as _serve
+
+    return _serve(*args, **kwargs)
+
+
+def set_password(*args, **kwargs):
+    """设置访问密码（写入密码文件）。"""
+    from .auth import set_password as _set_password
+
+    return _set_password(*args, **kwargs)
+
+
+def clear_password(*args, **kwargs):
+    """关闭访问密码（删除密码文件）。"""
+    from .auth import clear_password as _clear_password
+
+    return _clear_password(*args, **kwargs)
 
 
 def load_book(path) -> dict:
@@ -89,12 +119,17 @@ def load_book(path) -> dict:
         raise ValueError(
             f"本位币不支持: {base}（仅支持 {', '.join(market.SUPPORTED_CURRENCIES)}）"
         )
+    book["本位币"] = base
+    cash = book.get("现金")
+    if isinstance(cash, dict):
+        book["现金"] = {str(ccy).upper(): amount for ccy, amount in cash.items()}
     for h in book["持仓"]:
         for key in ("标的", "代码", "大类", "货币", "数量", "成本价"):
             if key not in h:
                 raise ValueError(f"持仓缺少字段 {key}: {h}")
         if h["大类"] not in names:
             raise ValueError(f"未知大类 {h['大类']}: {h}")
+        h["货币"] = str(h["货币"]).upper()
         h["数量"] = float(h["数量"])
         h["成本价"] = float(h["成本价"])
         if "现价" in h and h["现价"] is not None:
@@ -120,6 +155,75 @@ def smoke(path) -> dict:
         "摘要": summary,
         "示例建议(温度42)": plan,
     }
+
+
+def check_book(path, opener=None) -> dict:
+    """校验持仓 JSON，并探测行情、汇率、日线接口（需联网）。"""
+    problems = validate_file(path)
+    result = {
+        "格式": {"ok": not problems, "错误": problems},
+        "接口": [],
+        "ok": False,
+    }
+    if problems:
+        return result
+
+    book = load_book(path)
+    base = market.resolve_base(book)
+    ma_window = valuation_config(book)["均线窗口"]
+    kwargs = {} if opener is None else {"opener": opener}
+    quotes, rates = market.fetch_all(book, **kwargs)
+
+    need = [h for h in book["持仓"] if float(h["数量"]) > 0]
+    priced = sum(1 for h in need if quotes.get(h["代码"]) is not None)
+    quote_ok = priced == len(need)
+    quote_detail = "无持仓，跳过" if not need else f"{priced}/{len(need)} 只取价成功"
+
+    used = {h["货币"] for h in book["持仓"]}
+    used.update((book.get("现金") or {}).keys())
+    used.discard(base)
+    missing = sorted(ccy for ccy in used if rates.get(ccy) is None)
+    canary = "USD" if base != "USD" else "CNY"
+    if missing:
+        rate_ok = False
+        rate_detail = "缺少汇率: " + ", ".join(missing)
+    elif used:
+        rate_ok = rates.get(canary) is not None
+        rate_detail = (
+            f"可用（本位币 {base}）" if rate_ok else "接口不可用"
+        )
+    else:
+        rate_ok = True  # 没有外币敞口，不需要汇率
+        rate_detail = f"无外币敞口（本位币 {base}）"
+
+    symbols = sorted(
+        {
+            symbol
+            for h in need
+            if (symbol := market.kline_symbol(h["代码"]))
+        }
+    )
+    klines = market.fetch_klines(
+        symbols, count=ma_window + 1, **kwargs
+    )
+    rows = {sym: len(klines.get(sym) or []) for sym in symbols}
+    # 温度计算需要完整均线窗口；只探测到 1 行不算成功
+    kline_ok = all(count >= ma_window for count in rows.values())
+    kline_detail = (
+        "无日线标的，跳过"
+        if not rows
+        else ", ".join(
+            f"{sym} {count}/{ma_window} 行" for sym, count in rows.items()
+        )
+    )
+
+    result["接口"] = [
+        {"名称": "行情", "ok": quote_ok, "说明": quote_detail},
+        {"名称": "汇率", "ok": rate_ok, "说明": rate_detail},
+        {"名称": "日线", "ok": kline_ok, "说明": kline_detail},
+    ]
+    result["ok"] = quote_ok and rate_ok and kline_ok
+    return result
 
 
 def run_book(path, offline: bool = True) -> None:

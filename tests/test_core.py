@@ -29,6 +29,22 @@ class LoadBookTest(unittest.TestCase):
             self.assertIsInstance(h["数量"], float)
             self.assertIsInstance(h["成本价"], float)
 
+    def test_currency_keys_normalized(self):
+        import tempfile
+
+        book = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+        book["现金"] = {"cny": 1000}
+        book["持仓"][0]["货币"] = "cny"
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "lower.json"
+            p.write_text(json.dumps(book, ensure_ascii=False), encoding="utf-8")
+            loaded = stockfolio.load_book(p)
+        self.assertEqual(loaded["持仓"][0]["货币"], "CNY")
+        self.assertIn("CNY", loaded["现金"])
+        quotes, rates = market.offline_quotes_rates(loaded)
+        rows = analysis.enrich_holdings(loaded, quotes, rates)
+        self.assertTrue(rows[0]["可汇总"])
+
     def test_missing_field_raises(self):
         bad = {"大类": [{"名称": "A", "比例": 1.0}], "持仓": [{"标的": "X"}]}
         # 直接调内部校验路径：写临时文件太重，验证 load_book 对缺字段的报错
@@ -39,6 +55,17 @@ class LoadBookTest(unittest.TestCase):
             p.write_text(json.dumps(bad), encoding="utf-8")
             with self.assertRaises(ValueError):
                 stockfolio.load_book(p)
+
+
+class PackagingTest(unittest.TestCase):
+    def test_bundled_demo_matches_root(self):
+        root = EXAMPLE
+        bundled = root.parent / "stockfolio" / "example_book.json"
+        self.assertTrue(bundled.exists())
+        self.assertEqual(
+            json.loads(root.read_text(encoding="utf-8")),
+            json.loads(bundled.read_text(encoding="utf-8")),
+        )
 
 
 class OfflinePipelineTest(unittest.TestCase):
@@ -58,15 +85,47 @@ class OfflinePipelineTest(unittest.TestCase):
             summary["当前总仓_w"], (1000 * 4.2 + 1500 * 3.0) / 10000, places=2
         )
 
-    def test_quota_backward_compat(self):
+    def test_target_total(self):
         book = stockfolio.load_book(EXAMPLE)
         quotes, rates = market.offline_quotes_rates(book)
         enriched = analysis.enrich_holdings(book, quotes, rates)
-        self.assertEqual(analysis.summarize(book, enriched, rates)["目标配额"], 100)
-        legacy = dict(book)
-        legacy["配额总仓_2030"] = 60
-        legacy.pop("配额总仓")
-        self.assertEqual(analysis.summarize(legacy, enriched, rates)["目标配额"], 60)
+        self.assertEqual(analysis.summarize(book, enriched, rates)["目标总仓"], 100)
+
+    def test_target_total_ignores_legacy_key(self):
+        book = stockfolio.load_book(EXAMPLE)
+        quotes, rates = market.offline_quotes_rates(book)
+        enriched = analysis.enrich_holdings(book, quotes, rates)
+        book.pop("目标总仓")
+        book["配额总仓"] = 60  # 旧字段不再生效
+        summary = analysis.summarize(book, enriched, rates)
+        self.assertIsNone(summary["目标总仓"])
+        self.assertTrue(all(cat["目标仓"] is None for cat in summary["大类"]))
+        self.assertTrue(all(cat["平衡"] is None for cat in summary["大类"]))
+
+    def test_category_four_metrics(self):
+        book = stockfolio.load_book(EXAMPLE)
+        quotes, rates = market.offline_quotes_rates(book)
+        enriched = analysis.enrich_holdings(book, quotes, rates)
+        summary = analysis.summarize(book, enriched, rates)
+        steady = next(c for c in summary["大类"] if c["名称"] == "稳健")
+        # 目标 = 目标总仓 100w × 40%；当前仅人民币两只可取价
+        self.assertAlmostEqual(steady["目标仓"], 40.0)
+        self.assertAlmostEqual(steady["当前仓"], 0.87, places=2)
+        self.assertAlmostEqual(steady["当前占比"], 100.0)
+        self.assertAlmostEqual(steady["平衡"], 39.13, places=2)
+        self.assertTrue(steady["操作"].startswith("加仓"))
+
+    def test_category_without_target_total(self):
+        book = stockfolio.load_book(EXAMPLE)
+        quotes, rates = market.offline_quotes_rates(book)
+        enriched = analysis.enrich_holdings(book, quotes, rates)
+        book.pop("目标总仓")
+        summary = analysis.summarize(book, enriched, rates)
+        for cat in summary["大类"]:
+            self.assertIsNone(cat["目标仓"])
+            self.assertIsNone(cat["平衡"])
+            self.assertIsNone(cat["操作"])
+            self.assertIsNotNone(cat["当前占比"])
 
 
 class RatesTest(unittest.TestCase):
@@ -386,6 +445,70 @@ class MappingTest(unittest.TestCase):
         self.assertIsNone(market.kline_symbol("HKDCNY=X"))
 
 
+class PriceResolveTest(unittest.TestCase):
+    def test_zero_quote_falls_back_to_manual(self):
+        holding = {"代码": "X", "现价": 10.0}
+        self.assertEqual(analysis.resolve_price(holding, {"X": 0.0}), 10.0)
+        self.assertEqual(analysis.resolve_price(holding, {"X": None}), 10.0)
+        self.assertIsNone(analysis.resolve_price({"代码": "X"}, {"X": 0.0}))
+
+
+class UsKlineTest(unittest.TestCase):
+    """美股日线需要交易所后缀；腾讯只有带后缀才返回完整 qfq 历史。"""
+
+    class _Resp:
+        def __init__(self, data):
+            self._data = data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return self._data
+
+    def test_suffix_lookup_and_qfq_parse(self):
+        urls = []
+
+        def opener(req, timeout=8):
+            urls.append(req.full_url)
+            if "qt.gtimg.cn/q=" in req.full_url:
+                return self._Resp(b'v_usNVDA="200~x~NVDA.OQ~204.64";')
+            rows = [
+                ["2026-10-29", "1", "2", "3", "4", "5"],
+                ["2026-10-30", "2", "3", "4", "5", "6"],
+            ]
+            return self._Resp(
+                json.dumps({"data": {"usNVDA.OQ": {"qfqday": rows}}}).encode()
+            )
+
+        rows = market.fetch_kline("usNVDA", 30, opener=opener)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[-1][1], 3.0)  # qfqday: [日期, 开, 收, 高, 低, 量]
+        self.assertTrue(any("q=usNVDA" in u for u in urls))
+        self.assertTrue(any("param=usNVDA.OQ" in u for u in urls))
+
+    def test_dash_ticker_normalized(self):
+        urls = []
+
+        def opener(req, timeout=8):
+            urls.append(req.full_url)
+            if "qt.gtimg.cn/q=" in req.full_url:
+                return self._Resp(b'v_usTEST.B="200~x~TEST.B.N~1";')
+            return self._Resp(
+                json.dumps(
+                    {"data": {"usTEST.B.N": {"day": [["2026-10-30", "1", "2", "3", "4", "5"]]}}}
+                ).encode()
+            )
+
+        rows = market.fetch_kline("usTEST-B", 30, opener=opener)
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(any("q=usTEST.B" in u for u in urls))
+        self.assertTrue(any("param=usTEST.B.N" in u for u in urls))
+
+
 class ActionTest(unittest.TestCase):
     def test_action_text(self):
         self.assertEqual(analysis.action_text(10.0, 8.0), "加仓 2.0")
@@ -441,6 +564,23 @@ class ValidatorTest(unittest.TestCase):
         del book["估值"]
         errors = stockfolio.validate_book(book)
         self.assertTrue(any("估值 缺失" in e for e in errors))
+
+    def test_non_finite_rejected(self):
+        book = self._base_book()
+        book["目标总仓"] = float("nan")
+        book["现金"]["CNY"] = float("inf")
+        book["持仓"][0]["数量"] = float("nan")
+        errors = stockfolio.validate_book(book)
+        self.assertEqual(sum("不是有限数字" in e for e in errors), 3)
+
+    def test_non_utf8_file(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "gbk.json"
+            p.write_bytes('{"标题":"示例"}'.encode("gbk"))
+            errors = stockfolio.validate_file(p)
+        self.assertTrue(any("UTF-8" in e for e in errors))
 
     def test_rule_anchor_count(self):
         book = self._base_book()
@@ -503,6 +643,151 @@ class ValidatorTest(unittest.TestCase):
             p.write_text("{ 不是合法json", encoding="utf-8")
             errors = stockfolio.validate_file(p)
             self.assertTrue(any("解析失败" in e for e in errors))
+
+
+class CheckBookTest(unittest.TestCase):
+    """check_book（--ping）：格式 + 行情/汇率/日线接口（mock，不联网）。"""
+
+    # 腾讯报价：美股代码在 field[2] 带交易所后缀（SPY.AM）
+    QQ_US = 'v_usSPY="200~x~SPY.AM~520.0";'
+
+    QUOTES = (
+        'var hq_str_sh510300="a,4,4,4.2,0";\n'
+        'var hq_str_sh510880="a,2,2,3.0,0";\n'
+        'var hq_str_rt_hk02800="a,1,2,3,4,5,23.0,0";\n'
+        'var hq_str_gb_spy="a,520.0,0";\n'
+        'var hq_str_fx_susdcny="a,6.65,6.66,0";\n'
+        'var hq_str_fx_shkdcny="a,0.85,0.86,0";\n'
+        'var hq_str_fx_sjpycny="a,0.0423,0.0424,0";\n'
+    )
+
+    class _Resp:
+        def __init__(self, data):
+            self._data = data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return self._data
+
+    class _Open:
+        def __init__(self, quotes=None, klines=True, count=251):
+            self.quotes = CheckBookTest.QUOTES if quotes is None else quotes
+            self.klines = klines
+            self.count = count
+
+        def _sina_rows(self):
+            return [
+                {"day": f"d{i}", "close": "4.2", "high": "4.3", "volume": "100"}
+                for i in range(self.count)
+            ]
+
+        def _qq_rows(self):
+            return [
+                [f"d{i}", "4.0", "4.2", "4.3", "3.9", "100"]
+                for i in range(self.count)
+            ]
+
+        def __call__(self, req, timeout=8):
+            url = req.full_url
+            if "qt.gtimg.cn/q=" in url:
+                # 美股后缀查询；失败用例返回空文本让日线直接缺席
+                text = CheckBookTest.QQ_US if self.quotes else ""
+                return CheckBookTest._Resp(text.encode("gbk"))
+            if "getKLineData" in url:
+                rows = self._sina_rows() if self.klines else []
+                return CheckBookTest._Resp(json.dumps(rows).encode())
+            if "gtimg.cn" in url:
+                symbol = url.split("param=")[1].split(",")[0]
+                rows = self._qq_rows() if self.klines else []
+                return CheckBookTest._Resp(
+                    json.dumps({"data": {symbol: {"qfqday": rows}}}).encode()
+                )
+            return CheckBookTest._Resp(self.quotes.encode("gbk"))
+
+    def test_example_ok(self):
+        result = stockfolio.check_book(EXAMPLE, opener=self._Open())
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["格式"]["ok"])
+        self.assertEqual([i["名称"] for i in result["接口"]], ["行情", "汇率", "日线"])
+        self.assertTrue(all(i["ok"] for i in result["接口"]))
+        self.assertIn("4/4", result["接口"][0]["说明"])
+        self.assertIn("251/250", result["接口"][2]["说明"])
+
+    def test_insufficient_klines_fail(self):
+        """日线不足均线窗口时必须判失败（--ping 不能只看到 >0 行就放行）。"""
+        result = stockfolio.check_book(EXAMPLE, opener=self._Open(count=10))
+        day = next(i for i in result["接口"] if i["名称"] == "日线")
+        self.assertFalse(day["ok"])
+        self.assertFalse(result["ok"])
+        self.assertIn("10/250", day["说明"])
+
+    def test_no_foreign_currency_needs_no_fx(self):
+        """纯人民币组合不需要外币汇率：即使汇率响应为空也应通过。"""
+        import tempfile
+
+        book = {
+            "标题": "纯人民币",
+            "本位币": "CNY",
+            "现金": {"CNY": 1000},
+            "大类": [{"名称": "A", "比例": 1.0}],
+            "估值": {
+                "现金规则": [
+                    {"温度": 0, "名称": "低", "现金": 0},
+                    {"温度": 100, "名称": "高", "现金": 50},
+                ]
+            },
+            "持仓": [
+                {
+                    "标的": "沪深300",
+                    "代码": "510300.SS",
+                    "大类": "A",
+                    "货币": "CNY",
+                    "数量": 1000,
+                    "成本价": 4.0,
+                }
+            ],
+        }
+        quotes = (
+            'var hq_str_sh510300="a,4,4,4.2,0";\n'
+            'var hq_str_fx_susdcny="";\n'
+            'var hq_str_fx_shkdcny="";\n'
+        )
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "cny.json"
+            p.write_text(json.dumps(book, ensure_ascii=False), encoding="utf-8")
+            result = stockfolio.check_book(
+                p, opener=self._Open(quotes=quotes)
+            )
+        rate = next(i for i in result["接口"] if i["名称"] == "汇率")
+        self.assertTrue(rate["ok"])
+        self.assertIn("无外币敞口", rate["说明"])
+        self.assertTrue(result["ok"])
+
+    def test_format_error_skips_interfaces(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "bad.json"
+            p.write_text("{ bad", encoding="utf-8")
+            result = stockfolio.check_book(p)
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["格式"]["ok"])
+        self.assertEqual(result["接口"], [])
+
+    def test_interface_failure(self):
+        result = stockfolio.check_book(
+            EXAMPLE, opener=self._Open(quotes="", klines=False)
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(
+            {i["名称"]: i["ok"] for i in result["接口"]},
+            {"行情": False, "汇率": False, "日线": False},
+        )
 
 
 if __name__ == "__main__":

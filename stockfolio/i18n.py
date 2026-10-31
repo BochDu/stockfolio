@@ -39,7 +39,11 @@ UI = {
     "EN": {"zh": "EN", "en": "中文"},  # 按钮显示目标语言
     "股票持仓": {"zh": "股票持仓", "en": "Stock Portfolio"},
     "本位币": {"zh": "本位币", "en": "Base"},
-    "目标配额": {"zh": "目标配额", "en": "Target Quota"},
+    "目标总仓": {"zh": "目标总仓", "en": "Target Portfolio"},
+    "目标": {"zh": "目标", "en": "Target"},
+    "持仓": {"zh": "持仓", "en": "Holdings"},
+    "占比": {"zh": "占比", "en": "Share"},
+    "平衡": {"zh": "平衡", "en": "Balance"},
     "当前总仓": {"zh": "当前总仓", "en": "Current Holdings"},
     "当前现金": {"zh": "当前现金", "en": "Current Cash"},
     "现金占比": {"zh": "现金占比", "en": "Cash Ratio"},
@@ -61,6 +65,10 @@ UI = {
         "en": "No quotes available (check network or manual prices)",
     },
     "现金未折算：": {"zh": "现金未折算：", "en": "Cash not converted: "},
+    "报价不全：部分持仓未取到价格，市值、现金占比与平衡建议仅按已取价部分计算。": {
+        "zh": "报价不全：部分持仓未取到价格，市值、现金占比与平衡建议仅按已取价部分计算。",
+        "en": "Incomplete quotes: some holdings are unpriced; value, cash ratio and balancing suggestions use priced holdings only.",
+    },
     "三条大盘只做参考，不参与温度计算（0=冰点 100=泡沫）": {
         "zh": "三条大盘只做参考，不参与温度计算（0=冰点 100=泡沫）",
         "en": "Benchmarks are reference only (0=ice cold, 100=bubble)",

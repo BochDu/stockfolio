@@ -30,3 +30,7 @@ Thumbs.db
 
 # Personal data — NEVER commit your real portfolio
 data/
+
+# Local credentials — never commit
+auth.json
+.stockfolio/

@@ -17,25 +17,27 @@ This document explains every field of the stockfolio book JSON; see `example_boo
 |---|---|---|
 | `标题` | 界面大标题（必填，可为任意文本） | Window title (required, any text) |
 | `语言` | 界面默认语言：`zh` 中文 / `en` 英文，缺省 `zh`；也可写 `language` | Default UI language: `zh` / `en`, default `zh`; key `language` also accepted |
-| `本位币` | 记账基准币种，24 种货币任选（见 §5），缺省 `CNY`；所有市值/现金/配额/建议金额都折算到它，非法币种启动报错 | Base currency for reporting; any of the 24 currencies (see §5), default `CNY`; invalid value raises on load |
-| `配额总仓` | 目标总仓位（万本位币），可选；旧字段 `配额总仓_2030` 兼容 | Target portfolio value (in 10k base units), optional; legacy key `配额总仓_2030` accepted |
+| `本位币` | 记账基准币种，24 种货币任选（见 §5），缺省 `CNY`；所有市值/现金/目标/建议金额都折算到它，非法币种启动报错 | Base currency for reporting; any of the 24 currencies (see §5), default `CNY`; invalid value raises on load |
+| `目标总仓` | 远期目标总仓位（万本位币），可选 | Long-term target portfolio value (in 10k base units), optional |
 | `现金` | 按币种的现金金额，如 `{"CNY": 100000, "JPY": 5000000}` | Cash amount per currency |
 
 ```json
 {
-  "标题": "我的组合",
+  "标题": "示例组合（替换为你的持仓）",
   "语言": "zh",
   "本位币": "CNY",
-  "配额总仓": 60,
-  "现金": { "CNY": 100000, "JPY": 5000000 }
+  "目标总仓": 100,
+  "现金": { "CNY": 100000, "HKD": 50000, "USD": 20000 }
 }
 ```
 
 ## 2. 大类 · Categories
 
-按权重分配目标仓位，`比例` 为 0~1 的小数，建议总和为 1（不强制）。
+按权重分配目标仓位，`比例` 为 0~1 的小数，**总和必须为 1**（允许 0.001 误差），否则加载报错。
+配置 `目标总仓` 后，各大类「目标」= 目标总仓 × 比例；未配置时目标与平衡显示 `—`。
 
-Weight-based target allocation; `比例` is a 0–1 fraction (sum≈1 recommended, not enforced).
+Weight-based target allocation; `比例` is a 0–1 fraction and **the sum must equal 1** (tolerance 0.001), otherwise the book is rejected on load.
+With `目标总仓` set, each category target = target portfolio × ratio; otherwise target and balance show `—`.
 
 ```json
 "大类": [
@@ -97,9 +99,9 @@ One record per holding. `现价` is optional: with a manual price, P&L works off
 
 ```json
 "持仓": [
-  { "标的": "紫金矿业", "代码": "601899.SS", "大类": "资源", "货币": "CNY", "数量": 500, "成本价": 28.81 },
-  { "标的": "腾讯控股", "代码": "0700.HK",   "大类": "成长", "货币": "HKD", "数量": 100, "成本价": 465.0, "现价": 383.6 },
-  { "标的": "标普500",  "代码": "VOO",       "大类": "海外", "货币": "USD", "数量": 3,   "成本价": 500.0 }
+  { "标的": "示例·沪深300ETF", "代码": "510300.SS", "大类": "稳健", "货币": "CNY", "数量": 1000, "成本价": 4.0 },
+  { "标的": "示例·盈富基金",   "代码": "02800.HK",  "大类": "成长", "货币": "HKD", "数量": 1000, "成本价": 22.0, "现价": 23.0 },
+  { "标的": "示例·标普500",    "代码": "SPY",       "大类": "海外", "货币": "USD", "数量": 10,   "成本价": 500.0 }
 ]
 ```
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -52,6 +53,10 @@ QQ_KLINE = (
     "?param={symbol},day,,,{count},qfq"
 )
 QQ_HEADERS = {"User-Agent": UA, "Referer": "https://gu.qq.com"}
+QQ_US_QUOTE = "https://qt.gtimg.cn/q=us{symbol}"
+
+_US_CODE_CACHE: dict[str, str] = {}
+_US_CODE_LOCK = threading.Lock()
 
 
 def _default_open(req, timeout=8):
@@ -247,6 +252,44 @@ def kline_symbol(code: str) -> str | None:
     return "us" + raw
 
 
+def us_kline_code(
+    ticker: str, opener=_default_open, timeout: float = 8
+) -> str | None:
+    """美股日线代码需要交易所后缀（如 SPY.AM / AAPL.OQ），从腾讯报价里取。"""
+    ticker = ticker.strip().upper().replace("-", ".")
+    with _US_CODE_LOCK:
+        cached = _US_CODE_CACHE.get(ticker)
+    if cached:
+        return cached
+    req = urllib.request.Request(
+        QQ_US_QUOTE.format(symbol=ticker), headers=QQ_HEADERS
+    )
+    try:
+        with opener(req, timeout=timeout) as resp:
+            text = resp.read().decode("gbk", errors="replace")
+    except (
+        OSError,
+        urllib.error.URLError,
+        ValueError,
+        TypeError,
+        UnicodeError,
+    ):
+        return None
+    match = re.search(r'v_us[^=]+="(.*)"', text)
+    if not match:
+        return None
+    fields = match.group(1).split("~")
+    if len(fields) < 3:
+        return None
+    market_code = fields[2].strip()
+    if not market_code or "." not in market_code:
+        return None
+    code = "us" + market_code
+    with _US_CODE_LOCK:
+        _US_CODE_CACHE[ticker] = code
+    return code
+
+
 def fetch_kline(
     symbol: str, count: int = 1200, opener=_default_open
 ) -> list[list]:
@@ -262,9 +305,13 @@ def fetch_kline(
         headers = QQ_HEADERS
         source = "qq"
     elif symbol.startswith("us"):
-        url = QQ_KLINE.format(path="usfqkline", symbol=symbol, count=count)
+        code = us_kline_code(symbol[2:], opener=opener)
+        if not code:
+            return []
+        url = QQ_KLINE.format(path="usfqkline", symbol=code, count=count)
         headers = QQ_HEADERS
         source = "qq"
+        symbol = code
     else:
         return []
 
@@ -289,7 +336,8 @@ def fetch_kline(
         return out
 
     data = (payload or {}).get("data") or {}
-    rows = (data.get(symbol) or {}).get("day") or []
+    entry = data.get(symbol) or {}
+    rows = entry.get("qfqday") or entry.get("day") or []
     for row in rows:
         if len(row) < 6:
             continue
