@@ -106,7 +106,6 @@ def summarize(
     cash_w = cash_cny / 10000.0
 
     quota = book.get("目标总仓")
-    target_w = float(quota) if quota is not None else None
 
     categories = []
     for cat in book["大类"]:
@@ -115,17 +114,19 @@ def summarize(
         current = sum(
             r["市值_本位"] for r in active if r["大类"] == name
         ) / 10000.0
-        target = target_w * ratio if target_w is not None else None
+        # 大类平衡：相对「当前全部股票总市值」的配置偏离，而非预设目标总仓。
+        # 期望大类市值 = 当前股票总市值 × 大类配置比例；平衡 = 期望 − 当前。
+        expected = total_w * ratio
         share = (current / total_w * 100.0) if total_w > 0 else None
         categories.append(
             {
                 "名称": name,
                 "比例": ratio,
-                "目标仓": None if target is None else round(target, 2),
+                "目标仓": round(expected, 2),
                 "当前仓": round(current, 2),
                 "当前占比": None if share is None else round(share, 1),
-                "平衡": None if target is None else round(target - current, 2),
-                "操作": None if target is None else action_text(target, current, lang),
+                "平衡": round(expected - current, 2),
+                "操作": action_text(expected, current, lang),
             }
         )
 
