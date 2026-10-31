@@ -99,8 +99,8 @@ class OfflinePipelineTest(unittest.TestCase):
         book["配额总仓"] = 60  # 旧字段不再生效
         summary = analysis.summarize(book, enriched, rates)
         self.assertIsNone(summary["目标总仓"])
-        # 大类目标仓/平衡基于当前总仓，与 目标总仓 是否设置无关，始终可算
-        self.assertTrue(all(cat["目标仓"] is not None for cat in summary["大类"]))
+        # 目标仓依赖 目标总仓，移除后为 None；平衡基于当前总仓，始终可算
+        self.assertTrue(all(cat["目标仓"] is None for cat in summary["大类"]))
         self.assertTrue(all(cat["平衡"] is not None for cat in summary["大类"]))
 
     def test_category_four_metrics(self):
@@ -109,12 +109,11 @@ class OfflinePipelineTest(unittest.TestCase):
         enriched = analysis.enrich_holdings(book, quotes, rates)
         summary = analysis.summarize(book, enriched, rates)
         steady = next(c for c in summary["大类"] if c["名称"] == "稳健")
-        # 当前仅人民币两只可取价，稳健即整体：总仓 0.87w，比例 40%
+        # 目标仓 = 目标总仓 100w × 40% = 40w；当前仅人民币两只可取价，稳健即整体
+        self.assertAlmostEqual(steady["目标仓"], 40.0)
         self.assertAlmostEqual(steady["当前仓"], 0.87, places=2)
         self.assertAlmostEqual(steady["当前占比"], 100.0)
-        # 目标仓 = 当前总仓 0.87w × 40% ≈ 0.35w（相对当前总仓，而非目标总仓）
-        self.assertAlmostEqual(steady["目标仓"], 0.35, places=2)
-        # 平衡 = 目标仓 − 当前仓 ≈ 0.35 − 0.87 = -0.52（超配，应减仓）
+        # 平衡 = 当前总仓 0.87w × 40% − 当前 0.87w ≈ -0.52（超配，应减仓）
         self.assertAlmostEqual(steady["平衡"], -0.52, places=2)
         self.assertTrue(steady["操作"].startswith("减仓"))
 
@@ -125,8 +124,8 @@ class OfflinePipelineTest(unittest.TestCase):
         book.pop("目标总仓")
         summary = analysis.summarize(book, enriched, rates)
         for cat in summary["大类"]:
-            # 大类平衡不再依赖 目标总仓，始终按当前总仓计算
-            self.assertIsNotNone(cat["目标仓"])
+            # 目标仓依赖 目标总仓；平衡/操作基于当前总仓，始终可算
+            self.assertIsNone(cat["目标仓"])
             self.assertIsNotNone(cat["平衡"])
             self.assertIsNotNone(cat["操作"])
             self.assertIsNotNone(cat["当前占比"])

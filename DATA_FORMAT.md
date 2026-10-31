@@ -34,10 +34,10 @@ This document explains every field of the stockfolio book JSON; see `example_boo
 ## 2. 大类 · Categories
 
 按权重分配目标仓位，`比例` 为 0~1 的小数，**总和必须为 1**（允许 0.001 误差），否则加载报错。
-各大类「目标仓」= 当前股票总市值 × 比例；「平衡」= 目标仓 − 当前仓，表示在保持整体股票仓位不变的前提下该大类需调增/调减的金额（相对当前总仓的配置偏离）。`目标总仓` 用于整体现金/股票大目标的配置。
+各大类「目标仓」= 目标总仓 × 比例（设定目标总仓时），为远期绝对目标；「平衡」= 当前股票总市值 × 比例 − 当前仓，表示在保持整体股票仓位不变的前提下该大类需调增/调减的金额（相对当前总仓的配置偏离）。
 
 Weight-based target allocation; `比例` is a 0–1 fraction and **the sum must equal 1** (tolerance 0.001), otherwise the book is rejected on load.
-Category `目标仓` = current stock total value × ratio; `平衡` = 目标仓 − 当前仓, i.e. the relative deviation from the current total (how much to add/reduce while keeping the overall stock position unchanged). `目标总仓` drives the overall cash/stock goal.
+Category `目标仓` = target portfolio × ratio (when set), the long-term absolute target; `平衡` = current stock total value × ratio − 当前仓, the relative deviation from the current total (how much to add/reduce while keeping the overall stock position unchanged).
 
 ```json
 "大类": [
