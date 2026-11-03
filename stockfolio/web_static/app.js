@@ -438,10 +438,11 @@
       head.append(el('span', `cat-detail ${detailClass}`, detail));
       panel.append(head);
 
+      // 没有温度信息的大类也保留这一行的高度，表头不会顶到标题上
       const heatInfo = heatByName[name];
+      const sub = el('div', 'cat-sub');
       if (heatInfo) {
         const heat = heatInfo['热度'];
-        const sub = el('div', 'cat-sub');
         sub.append(
           el(
             'span',
@@ -456,8 +457,10 @@
             ? `Coverage ${heatInfo['样本']}`
             : `覆盖 ${heatInfo['样本']} 只`;
         sub.append(el('span', 'muted', coverage));
-        panel.append(sub);
+      } else {
+        sub.append(el('span', 'muted', '\u00a0'));
       }
+      panel.append(sub);
 
       const rows = (payload.enriched || []).filter((row) => row['大类'] === name);
       if (!rows.length) {
