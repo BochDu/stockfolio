@@ -16,9 +16,9 @@ python -m stockfolio --check example_book.json   # 离线格式校验 / format c
 python -m stockfolio --ping example_book.json    # 联网取数检查 / network check
 ```
 
-界面只有 Web 版：不带子命令时直接起服务，`--serve` 仍可显式指定（兼容旧命令）。需要局域网/手机访问时加 `--host 0.0.0.0`，公网请走 HTTPS 反向代理。
+界面只有 Web 版：不带子命令时直接起服务。需要局域网/手机访问时加 `--host 0.0.0.0`，公网请走 HTTPS 反向代理。
 
-Web UI only: running without a subcommand starts the server; `--serve` still works for compatibility. Use `--host 0.0.0.0` for LAN/mobile access, and an HTTPS reverse proxy for the public internet.
+Web UI only: running without a subcommand starts the server. Use `--host 0.0.0.0` for LAN/mobile access, and an HTTPS reverse proxy for the public internet.
 
 ## 密码（可选）Password (optional)
 
