@@ -426,6 +426,11 @@ select {
   font-size: 12px;
 }
 
+/* 无温度信息的大类：整行隐藏但保留一行空白，间距与信息完整的大类一致 */
+.cat-sub.empty {
+  visibility: hidden;
+}
+
 .table-wrap {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -651,6 +656,10 @@ tbody tr:nth-child(even) {
   .valuation-row,
   .charts-row {
     grid-template-columns: 1fr;
+  }
+
+  .cat-sub {
+    margin-bottom: 16px;
   }
 
   .page-title {

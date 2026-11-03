@@ -440,7 +440,7 @@
 
       // 没有温度信息的大类也保留这一行的高度，表头不会顶到标题上
       const heatInfo = heatByName[name];
-      const sub = el('div', 'cat-sub');
+      const sub = el('div', heatInfo ? 'cat-sub' : 'cat-sub empty');
       if (heatInfo) {
         const heat = heatInfo['热度'];
         sub.append(
