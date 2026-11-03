@@ -93,7 +93,7 @@ One record per holding. `现价` is optional: with a manual price, P&L works off
 | `代码` | 行情代码，格式见下方 | Quote code, see below |
 | `大类` | 归属的大类名称（必须已在「大类」中定义） | Category (must match a defined category) |
 | `货币` | 该标的计价币种（24 种之一） | Currency of the holding (one of 24) |
-| `数量` | 持有数量；`0` 为观察仓（不联网取价，有手填现价才显示） | Shares held; `0` = watchlist item (no live quote; shown only with a manual price) |
+| `数量` | 持有数量；填 `0` 表示未持有，仍可取现价与温度，但不计入市值、盈亏与温度合成 | Shares held; `0` means not held — price and heat still work, but it is excluded from value, P&L and heat weighting |
 | `成本价` | 买入均价 | Average cost |
 | `现价` | 可选，手填价格 | Optional manual price |
 
@@ -129,5 +129,3 @@ FX rates come from Sina FX (X → CNY), fetched on refresh and converted into yo
   Heat 0–100 synthesized from percentile/MA-deviation/drawdown/volume-ratio; higher = pricier
 - 大盘温度仅作参考，不参与持仓温度合成
   Benchmark heat is reference only
-- **美股无温度**：日线数据源对 `usXXX`（个股与 `usIXIC` 等美股基准）只回 1 天，无法合成逆向指标，界面显示「无足够历史」；实时价格与盈亏仍正常。
-  **No heat for US symbols**: the daily-kline source returns only 1 day for `usXXX` (US holdings and US benchmarks), so their heat shows "Insufficient History"; live prices and P&L still work.

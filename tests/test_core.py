@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 import stockfolio
-from stockfolio import analysis, config, gui, i18n, market
+from stockfolio import analysis, config, i18n, market
 
 EXAMPLE = Path(__file__).resolve().parent.parent / "example_book.json"
 
@@ -231,6 +231,8 @@ class I18nTest(unittest.TestCase):
         self.assertEqual(i18n.t("刷新", "zh"), "刷新")
         self.assertEqual(i18n.t("刷新", "en"), "Refresh")
         self.assertEqual(i18n.t("市值(w)", "en"), "Value(k)")
+        self.assertEqual(i18n.t("观察仓", "en"), "Watchlist")
+        self.assertEqual(i18n.t("观察", "en"), "Watch")
         self.assertEqual(i18n.t("未知键", "en"), "未知键")  # 未注册原样
 
     def test_status_text(self):
@@ -277,7 +279,11 @@ class I18nTest(unittest.TestCase):
         sm_zh = analysis.summarize(book, enriched, rates)
         self.assertTrue(sm_zh["大类"][0]["操作"].startswith(("加仓", "减仓")))
 
-    def _view_zh(self, book, summary):
+    def test_view_heat_labels_follow_lang(self):
+        """档位/操作/参考行读数随语言生成，切语言由上层重新计算。"""
+        book = stockfolio.load_book(EXAMPLE)
+        quotes, rates = market.offline_quotes_rates(book)
+        enriched = analysis.enrich_holdings(book, quotes, rates)
         cfg = stockfolio.valuation_config(book)
         refs = [{"名称": "A股", "热度": 42.0, "可用": True}]
         holdings = {
@@ -289,39 +295,26 @@ class I18nTest(unittest.TestCase):
             "大类热度": [],
             "代码热度": {},
         }
-        return stockfolio.valuation_view(refs, holdings, summary, cfg["现金规则"], "zh")
+        view_zh = stockfolio.valuation_view(
+            refs, holdings, analysis.summarize(book, enriched, rates), cfg["现金规则"], "zh"
+        )
+        self.assertEqual(view_zh["参考行"][0][2], "中性")  # 42 → 中性
+        self.assertIn("之间", view_zh["建议"]["档位"])
 
-    def test_relocalize_view(self):
-        """切语言后 view 的档位/操作/参考行读数必须随语言重生成（不混乱）。"""
-        book = stockfolio.load_book(EXAMPLE)
-        quotes, rates = market.offline_quotes_rates(book)
-        enriched = analysis.enrich_holdings(book, quotes, rates)
-        summary = analysis.summarize(book, enriched, rates)
-        view = self._view_zh(book, summary)
-        self.assertEqual(view["参考行"][0][2], "中性")  # 42 → 中性
-        self.assertIn("之间", view["建议"]["档位"])
-
-        gui.relocalize_view(view, book, "en")
-        self.assertEqual(view["参考行"][0][2], "Neutral")
-        self.assertIn("Between Fairly Undervalued and Optimistically Valued", view["建议"]["档位"])
-        self.assertTrue(str(view["操作"]).startswith("Add"))
-        self.assertTrue(str(view["操作"]).endswith(" k"))
-
-        # 再切回中文应还原
-        gui.relocalize_view(view, book, "zh")
-        self.assertEqual(view["参考行"][0][2], "中性")
-        self.assertIn("之间", view["建议"]["档位"])
-        self.assertTrue(str(view["操作"]).startswith(("加仓", "减仓")))
-
-    def test_relocalize_summary(self):
-        book = stockfolio.load_book(EXAMPLE)
-        quotes, rates = market.offline_quotes_rates(book)
-        enriched = analysis.enrich_holdings(book, quotes, rates)
-        sm_zh = analysis.summarize(book, enriched, rates)
-        sm_en = gui.relocalize_summary(book, enriched, rates, sm_zh, "en")
-        self.assertIn(sm_en["大类"][0]["操作"][:3], ("Add", "Red"))
-        self.assertTrue(sm_en["大类"][0]["操作"].endswith(" k"))
-        self.assertIsNone(gui.relocalize_summary(book, enriched, rates, None, "en"))
+        view_en = stockfolio.valuation_view(
+            refs,
+            holdings,
+            analysis.summarize(book, enriched, rates, lang="en"),
+            cfg["现金规则"],
+            "en",
+        )
+        self.assertEqual(view_en["参考行"][0][2], "Neutral")
+        self.assertIn(
+            "Between Fairly Undervalued and Optimistically Valued",
+            view_en["建议"]["档位"],
+        )
+        self.assertTrue(str(view_en["操作"]).startswith("Add"))
+        self.assertTrue(str(view_en["操作"]).endswith(" k"))
 
 
 class LadderPlanTest(unittest.TestCase):
@@ -454,6 +447,164 @@ class PriceResolveTest(unittest.TestCase):
         self.assertEqual(analysis.resolve_price(holding, {"X": 0.0}), 10.0)
         self.assertEqual(analysis.resolve_price(holding, {"X": None}), 10.0)
         self.assertIsNone(analysis.resolve_price({"代码": "X"}, {"X": 0.0}))
+
+
+def _kline(step: float, count: int = 300) -> list[list]:
+    rows = []
+    price = 100.0
+    for i in range(count):
+        rows.append([f"d{i}", price, price * 1.01, 1000.0 + i])
+        price *= step
+    return rows
+
+
+class WatchlistTest(unittest.TestCase):
+    """观察仓（数量 0）：现价与温度照拉，但不参与市值与温度合成。"""
+
+    class _Resp:
+        def __init__(self, data):
+            self._data = data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return self._data
+
+    class _Open:
+        def __init__(self, prices, klines, tencent=""):
+            self.prices = prices
+            self.klines = klines
+            self.tencent = tencent
+
+        def __call__(self, req, timeout=8):
+            url = req.full_url
+            if "getKLineData" in url:
+                symbol = url.split("symbol=")[1].split("&")[0]
+                rows = [
+                    {"day": day, "close": str(close), "high": str(high), "volume": str(volume)}
+                    for day, close, high, volume in self.klines.get(symbol, [])
+                ]
+                return WatchlistTest._Resp(json.dumps(rows).encode())
+            if "qt.gtimg.cn" in url:
+                return WatchlistTest._Resp(self.tencent.encode("gbk"))
+            lines = [
+                f'var hq_str_{symbol}="x,1,2,{price},0";'
+                for symbol, price in self.prices.items()
+            ]
+            lines.append('var hq_str_fx_susdcny="a,6.65,6.66,0";')
+            return WatchlistTest._Resp("\n".join(lines).encode("gbk"))
+
+    def _book(self, watch_code="600000.SS"):
+        holding = {
+            "标的": "观察·" + watch_code,
+            "代码": watch_code,
+            "大类": "A",
+            "货币": "CNY",
+            "数量": 0.0,
+            "成本价": 0.0,
+        }
+        return {
+            "标题": "观察仓",
+            "本位币": "CNY",
+            "大类": [{"名称": "A", "比例": 1.0}],
+            "估值": {"现金规则": DEFAULT_CASH_RULES},
+            "持仓": [
+                {
+                    "标的": "持仓股",
+                    "代码": "600036.SS",
+                    "大类": "A",
+                    "货币": "CNY",
+                    "数量": 100.0,
+                    "成本价": 30.0,
+                },
+                holding,
+            ],
+        }
+
+    def test_watch_gets_quote_and_heat_without_affecting_portfolio(self):
+        book = self._book()
+        opener = self._Open(
+            {"sh600036": 40.0, "sh600000": 9.5},
+            {"sh600036": _kline(1.002), "sh600000": _kline(0.998)},
+        )
+        quotes, rates = market.fetch_all(book, opener=opener)
+        self.assertEqual(quotes["600000.SS"], 9.5)  # 观察仓也取价
+
+        enriched = analysis.enrich_holdings(book, quotes, rates)
+        watch = enriched[1]
+        self.assertTrue(watch["观察"])
+        self.assertFalse(watch["可汇总"])  # 没有市值/盈亏
+        self.assertEqual(watch["解析现价"], 9.5)
+
+        summary = analysis.summarize(book, enriched, rates)
+        self.assertEqual(summary["报价成功"], 1)  # 只统计有持仓的标的
+        self.assertEqual(summary["报价失败"], 0)
+        self.assertAlmostEqual(summary["当前总仓_w"], 100 * 40.0 / 10000, places=4)
+
+        heats = analysis.holding_heats(
+            enriched, config.valuation_config(book), opener=opener
+        )
+        self.assertIn("600000.SS", heats["代码热度"])  # 观察仓温度
+        self.assertEqual(heats["样本"], "1/1")
+        self.assertAlmostEqual(
+            heats["温度"], heats["代码热度"]["600036.SS"], places=6
+        )
+        self.assertEqual(heats["大类热度"][0]["样本"], "1/1")
+
+    def test_watch_heat_does_not_need_a_quote(self):
+        book = self._book()
+        opener = self._Open({}, {"sh600036": _kline(1.002), "sh600000": _kline(0.998)})
+        quotes, rates = market.fetch_all(book, opener=opener)
+        enriched = analysis.enrich_holdings(book, quotes, rates)
+        self.assertIsNone(enriched[1]["解析现价"])
+        heats = analysis.holding_heats(
+            enriched, config.valuation_config(book), opener=opener
+        )
+        self.assertIn("600000.SS", heats["代码热度"])
+
+    def test_watch_quote_status_ignores_manual_price(self):
+        self.assertFalse(
+            analysis._counts_in_quote_status({"数量": 0.0, "现价": 9.0})
+        )
+        self.assertTrue(analysis._counts_in_quote_status({"数量": 100.0}))
+
+    def test_us_quote_falls_back_to_tencent(self):
+        book = self._book(watch_code="BRK-B")
+        opener = self._Open(
+            {},
+            {},
+            tencent='v_usBRK.B="200~伯克希尔B~BRK.B.N~556.11~0";',
+        )
+        quotes, _rates = market.fetch_all(book, opener=opener)
+        self.assertEqual(quotes["BRK-B"], 556.11)
+
+    def test_no_per_symbol_fallback_when_sina_is_down(self):
+        """新浪整体不可用时不要逐个兜底，避免断网时多等 N 个超时。"""
+        book = self._book(watch_code="BRK-B")
+        calls = []
+
+        def opener(req, timeout=8):
+            calls.append(req.full_url)
+            return WatchlistTest._Resp(b"")
+
+        quotes, _rates = market.fetch_all(book, opener=opener)
+        self.assertIsNone(quotes["BRK-B"])
+        self.assertFalse(any("qt.gtimg.cn" in url for url in calls))
+
+    def test_us_fallback_still_runs_when_sina_is_alive(self):
+        """新浪只是缺美股报价（汇率正常）时，兜底仍要生效。"""
+        book = self._book(watch_code="BRK-B")
+        opener = self._Open(
+            {},
+            {},
+            tencent='v_usBRK.B="200~伯克希尔B~BRK.B.N~556.11~0";',
+        )
+        quotes, _rates = market.fetch_all(book, opener=opener)
+        self.assertEqual(quotes["BRK-B"], 556.11)
 
 
 class UsKlineTest(unittest.TestCase):

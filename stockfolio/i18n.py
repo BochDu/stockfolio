@@ -95,6 +95,13 @@ UI = {
     "市值(w)": {"zh": "市值(w)", "en": "Value(k)"},
     "占大类%": {"zh": "占大类%", "en": "Cat. %"},
     "盈亏%": {"zh": "盈亏%", "en": "P&L %"},
+    "大类": {"zh": "大类", "en": "Category"},
+    "观察": {"zh": "观察", "en": "Watch"},
+    "观察仓": {"zh": "观察仓", "en": "Watchlist"},
+    "不计入市值与温度": {
+        "zh": "不计入市值与温度",
+        "en": "Excluded from value and portfolio heat",
+    },
 }
 
 # 状态文案：按键 + 参数组装
@@ -105,6 +112,10 @@ _STATUS = {
     "noquote": {
         "zh": "未拿到可用报价（可检查网络或手填现价）",
         "en": "No quotes available (check network or manual prices)",
+    },
+    "watch": {
+        "zh": "无持仓：不生成仓位建议",
+        "en": "No positions: no allocation advice",
     },
     "error": {"zh": "拉取失败: {msg}", "en": "Fetch failed: {msg}"},
     "ok": {"zh": "报价 {ok} 成功 / {fail} 降级", "en": "Quotes {ok} ok / {fail} degraded"},

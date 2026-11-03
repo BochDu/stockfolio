@@ -184,31 +184,34 @@ def fetch_rates(
     return _rates_in_base(to_cny, (base or "CNY").upper())
 
 
-def _holding_needs_network_quote(h: dict) -> bool:
-    return float(h["数量"]) > 0
-
-
 def fetch_all(
     book: dict, opener=_default_open, base: str | None = None
 ) -> tuple[dict[str, float | None], dict[str, float | None]]:
-    """按持仓清单批量取报价与汇率（换算到本位币）；零数量且未手填现价的标的记 None。"""
+    """按持仓清单批量取报价与汇率（换算到本位币）。
+
+    观察仓（数量 0）同样取价：没有持仓的标的也值得看现价；取不到记 None，
+    由 enrich 回退到手填「现价」。
+    """
     base = base or resolve_base(book)
-    codes_to_fetch = {
-        h["代码"] for h in book["持仓"] if _holding_needs_network_quote(h)
-    }
-    code_sina = {code: code_to_sina(code) for code in codes_to_fetch}
+    code_sina = {h["代码"]: code_to_sina(h["代码"]) for h in book["持仓"]}
     sina_syms = [sym for sym in code_sina.values() if sym]
     prices = fetch_sina_list([*sina_syms, *FX_SYMBOLS], opener=opener)
 
     quotes: dict[str, float | None] = {
         code: prices.get(sym) if sym else None for code, sym in code_sina.items()
     }
-    for h in book["持仓"]:
-        code = h["代码"]
-        if code in quotes:
-            continue
-        if float(h["数量"]) == 0 and "现价" not in h:
-            quotes[code] = None
+    # 新浪偶有美股缺口（如 BRK.B）：只对美股再问一次腾讯，A股/港股不重复请求。
+    # 用汇率当探针判断新浪是否整体不可用：断网时不再逐个兜底，避免多等 N 个超时。
+    if any(prices.get(sym) is not None for sym in FX_SYMBOLS):
+        for code, price in list(quotes.items()):
+            if price is not None:
+                continue
+            symbol = kline_symbol(str(code))
+            if not symbol or symbol.startswith(("sh", "sz", "hk")):
+                continue
+            fallback = fetch_us_quote(str(code), opener=opener)
+            if fallback is not None:
+                quotes[code] = fallback
 
     rates = _rates_in_base(
         {
@@ -252,15 +255,11 @@ def kline_symbol(code: str) -> str | None:
     return "us" + raw
 
 
-def us_kline_code(
+def _qq_us_fields(
     ticker: str, opener=_default_open, timeout: float = 8
-) -> str | None:
-    """美股日线代码需要交易所后缀（如 SPY.AM / AAPL.OQ），从腾讯报价里取。"""
+) -> list[str] | None:
+    """腾讯美股报价原始字段；代码需带交易所后缀，后缀由该接口自身返回。"""
     ticker = ticker.strip().upper().replace("-", ".")
-    with _US_CODE_LOCK:
-        cached = _US_CODE_CACHE.get(ticker)
-    if cached:
-        return cached
     req = urllib.request.Request(
         QQ_US_QUOTE.format(symbol=ticker), headers=QQ_HEADERS
     )
@@ -278,8 +277,34 @@ def us_kline_code(
     match = re.search(r'v_us[^=]+="(.*)"', text)
     if not match:
         return None
-    fields = match.group(1).split("~")
-    if len(fields) < 3:
+    return match.group(1).split("~")
+
+
+def fetch_us_quote(
+    ticker: str, opener=_default_open, timeout: float = 8
+) -> float | None:
+    """美股现价兜底：新浪缺报价时改问腾讯（如 BRK.B）。"""
+    fields = _qq_us_fields(ticker, opener=opener, timeout=timeout)
+    if not fields or len(fields) < 4:
+        return None
+    try:
+        price = float(fields[3])
+    except ValueError:
+        return None
+    return price if price > 0 else None
+
+
+def us_kline_code(
+    ticker: str, opener=_default_open, timeout: float = 8
+) -> str | None:
+    """美股日线代码需要交易所后缀（如 SPY.AM / AAPL.OQ），从腾讯报价里取。"""
+    ticker = ticker.strip().upper().replace("-", ".")
+    with _US_CODE_LOCK:
+        cached = _US_CODE_CACHE.get(ticker)
+    if cached:
+        return cached
+    fields = _qq_us_fields(ticker, opener=opener, timeout=timeout)
+    if not fields or len(fields) < 3:
         return None
     market_code = fields[2].strip()
     if not market_code or "." not in market_code:

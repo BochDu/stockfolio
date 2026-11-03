@@ -1,4 +1,4 @@
-"""命令行入口：python -m stockfolio [--book PATH] [--smoke] [--serve]"""
+"""命令行入口：python -m stockfolio [--book PATH] [--serve] [--smoke]"""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ EXAMPLE_BOOK = _example_book()
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="stockfolio —— 股票仓位温度计：行情/日线 + 可配置现金规则建议"
+        description="stockfolio —— 股票仓位温度计：行情/日线 + 可配置现金规则建议（Web 界面）"
     )
     parser.add_argument(
         "--book",
@@ -39,14 +39,9 @@ def main() -> None:
         help="持仓 JSON 路径（可省略 --book）",
     )
     parser.add_argument(
-        "--online",
-        action="store_true",
-        help="启动即联网拉取报价（默认离线启动，点界面「刷新」联网）",
-    )
-    parser.add_argument(
         "--smoke",
         action="store_true",
-        help="只跑离线数据管道并打印摘要 JSON，不打开窗口",
+        help="只跑离线数据管道并打印摘要 JSON，不启动服务",
     )
     parser.add_argument(
         "--check",
@@ -66,7 +61,7 @@ def main() -> None:
     parser.add_argument(
         "--no-password",
         action="store_true",
-        help="关闭访问密码（删除密码文件）后退出；之后 --serve 直接进入",
+        help="关闭访问密码（删除密码文件）后退出；之后启动服务直接进入",
     )
     parser.add_argument(
         "--password",
@@ -81,7 +76,7 @@ def main() -> None:
     parser.add_argument(
         "--serve",
         action="store_true",
-        help="启动 Web 服务，用浏览器访问持仓（默认仅本机）",
+        help="启动 Web 服务（默认行为；保留此开关兼容旧命令）",
     )
     parser.add_argument(
         "--host",
@@ -140,22 +135,19 @@ def main() -> None:
         print("请修复后重试，或先用 `--check` 复查。", file=sys.stderr)
         sys.exit(1)
 
-    if args.serve:
-        stockfolio.serve(
-            book_path,
-            host=args.host,
-            port=args.port,
-            auth_file=args.auth_file,
-            password=args.password,
-        )
-        return
-
     if args.smoke:
         result = stockfolio.smoke(book_path)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
 
-    stockfolio.run_book(book_path, offline=not args.online)
+    # 只有 Web 界面：不带子命令时直接起服务（--serve 仍可用，兼容旧脚本）
+    stockfolio.serve(
+        book_path,
+        host=args.host,
+        port=args.port,
+        auth_file=args.auth_file,
+        password=args.password,
+    )
 
 
 if __name__ == "__main__":

@@ -205,8 +205,13 @@ class App:
                     for row in enriched
                     if _counts_in_quote_status(row) and not row["可汇总"]
                 )
+                positions = [
+                    row for row in enriched if float(row["数量"]) > 0
+                ]
                 if summary is None:
-                    status = {"key": "noquote", "params": {}}
+                    # 没有持仓（全是数量 0 的标的）不算「取价失败」：
+                    # 行情与温度可能都拿到了，只是没有仓位可汇总
+                    status = {"key": "watch" if not positions else "noquote", "params": {}}
                 else:
                     status = {"key": "ok", "params": {"ok": ok, "fail": fail}}
                 with self._lock:
@@ -512,7 +517,11 @@ def serve(
             record = hash_password(secret)
 
     app = App(book_path, record)
-    server = StockfolioServer((host, port), app)
+    try:
+        server = StockfolioServer((host, port), app)
+    except OSError as exc:
+        # 端口被占用 / 地址不可绑定时给一句人话，别抛 traceback
+        raise SystemExit(f"启动失败：{host}:{port} 无法监听（{exc}）") from exc
     lines = [f"stockfolio web: http://127.0.0.1:{port}" if host in ("127.0.0.1", "localhost") else f"stockfolio web: http://{host}:{port}"]
     if record is None:
         lines.append("未设置密码：打开即进入，无需登录。设置密码请运行 --set-password。")

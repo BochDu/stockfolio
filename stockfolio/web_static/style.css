@@ -243,6 +243,31 @@ main {
   min-width: 0;
 }
 
+.watch-panel {
+  margin-bottom: 12px;
+}
+
+.watch-panel .panel-hint {
+  margin-left: auto;
+}
+
+.tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--gold);
+  font-family: var(--font);
+  font-size: 10px;
+  line-height: 16px;
+  vertical-align: 1px;
+}
+
+.tag-watch {
+  border-color: rgba(231, 193, 90, 0.45);
+}
+
 .valuation-row {
   display: grid;
   grid-template-columns: 2fr 3fr;

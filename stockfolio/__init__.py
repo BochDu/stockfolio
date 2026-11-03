@@ -1,10 +1,10 @@
-"""stockfolio —— 股票仓位温度计（零第三方依赖，Python 标准库 + Tkinter）。
+"""stockfolio —— 股票仓位温度计（零第三方依赖，Python 标准库 + Web 界面）。
 
 用法：
     python -m stockfolio --book path/to/stock.json
 或代码内：
     import stockfolio
-    stockfolio.run_book("path/to/stock.json")
+    stockfolio.serve("path/to/stock.json")
 
 数据文件是普通 JSON：标的、代码、大类、货币、数量、成本价，
 外加「本位币」（24 种货币任选，缺省 CNY，见 market.FX_CODE）与
@@ -64,10 +64,8 @@ __all__ = [
     "market",
     "offline_quotes_rates",
     "resolve_base",
-    "run_book",
     "serve",
     "set_password",
-    "show",
     "smoke",
     "summarize",
     "validate_book",
@@ -77,15 +75,8 @@ __all__ = [
 ]
 
 
-def show(*args, **kwargs):
-    """打开 Tk 界面。延迟导入，缺少 tkinter 的服务器也能启动 Web 模式。"""
-    from .gui import show as _show
-
-    return _show(*args, **kwargs)
-
-
 def serve(*args, **kwargs):
-    """启动 Web 服务。延迟导入，避免引入 Tkinter 依赖。"""
+    """启动 Web 服务。延迟导入，避免无网络/无显示环境下的额外开销。"""
     from .web import serve as _serve
 
     return _serve(*args, **kwargs)
@@ -224,24 +215,3 @@ def check_book(path, opener=None) -> dict:
     ]
     result["ok"] = quote_ok and rate_ok and kline_ok
     return result
-
-
-def run_book(path, offline: bool = True) -> None:
-    """加载持仓并打开界面。默认离线启动（手填现价可用），点「刷新」联网。"""
-    book = load_book(path)
-    if offline:
-        quotes, rates = offline_quotes_rates(book)
-        initial_status = "initial"
-    else:
-        quotes, rates = fetch_all(book)
-        initial_status = "fetched"
-    enriched = enrich_holdings(book, quotes, rates)
-    cfg = valuation_config(book)
-    references = [
-        {"名称": str(entry.get("名称") or entry.get("代码") or ""), "热度": None, "可用": False}
-        for entry in cfg["参考基准"]
-    ]
-    lang = i18n.default_lang(book)
-    summary = summarize(book, enriched, rates, lang)
-    view = valuation_view(references, None, summary, cfg["现金规则"], lang)
-    show(book, enriched, summary, quotes, rates, view, initial_status=initial_status)

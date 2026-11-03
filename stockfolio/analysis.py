@@ -52,15 +52,15 @@ def enrich_holdings(
         row = dict(h)
         price = resolve_price(h, quotes)
         rate = rates.get(h["货币"])
-        ok = price is not None and rate is not None and h["数量"] >= 0
-        if price is None or rate is None:
-            ok = False
+        qty = float(h["数量"])
+        # 观察仓（数量 0）：现价照样展示，但没有市值/盈亏，也不参与汇总
+        row["观察"] = qty <= 0
         row["解析现价"] = price
         row["汇率"] = rate
-        row["可汇总"] = ok
-        if ok:
-            mv_native = h["数量"] * price
-            cost_native = h["数量"] * h["成本价"]
+        row["可汇总"] = qty > 0 and price is not None and rate is not None
+        if row["可汇总"]:
+            mv_native = qty * price
+            cost_native = qty * h["成本价"]
             row["市值_本位"] = mv_native * rate
             row["成本_本位"] = cost_native * rate
             if h["成本价"] > 0:
@@ -74,9 +74,8 @@ def enrich_holdings(
 
 
 def _counts_in_quote_status(row: dict) -> bool:
-    if float(row["数量"]) > 0:
-        return True
-    return row.get("现价") is not None
+    """报价状态只看有持仓的标的；观察仓不影响市值，取不到价不算失败。"""
+    return float(row["数量"]) > 0
 
 
 def summarize(
@@ -243,30 +242,46 @@ def benchmark_heats(cfg: dict, opener=_default_open) -> list[dict]:
 def holding_heats(
     enriched: list[dict], cfg: dict, opener=_default_open
 ) -> dict:
-    """温度的核心来源：每只持仓自己的逆向指标，按市值加权合成。"""
+    """温度的核心来源：每只持仓自己的逆向指标，按市值加权合成。
+
+    观察仓（数量 0）没有市值，不参与持仓温度与大类温度，但日线拉得到就单独
+    算一份个股温度，供明细表展示——没持仓也想知道贵不贵。
+    """
     ma_window = cfg["均线窗口"]
-    active = [
+    held = [
         row
         for row in enriched
         if row.get("可汇总") and float(row.get("数量") or 0) > 0
     ]
-    symbols = {}
-    for row in active:
+    # 观察仓只需要代码能映射到日线，不依赖报价/汇率
+    watch = [
+        row
+        for row in enriched
+        if float(row.get("数量") or 0) <= 0
+        and kline_symbol(str(row.get("代码") or ""))
+    ]
+    symbols: dict[str, str] = {}
+    for row in [*held, *watch]:
         symbol = kline_symbol(str(row.get("代码") or ""))
         if symbol:
             symbols[str(row["代码"])] = symbol
 
     klines = fetch_klines(list(symbols.values()), cfg["回看交易日"] + 1, opener=opener)
 
-    prepared: list[tuple[dict, list[list]]] = []
+    prepared_held: list[tuple[dict, list[list]]] = []
+    prepared_watch: list[tuple[dict, list[list]]] = []
     skipped: list[str] = []
-    for row in active:
-        code = str(row["代码"])
-        rows = klines.get(symbols.get(code, "")) or []
+    for row in held:
+        rows = klines.get(symbols.get(str(row["代码"]), "")) or []
         if len(rows) < ma_window:
             skipped.append(str(row["标的"]))
             continue
-        prepared.append((row, rows))
+        prepared_held.append((row, rows))
+    for row in watch:
+        rows = klines.get(symbols.get(str(row["代码"]), "")) or []
+        if len(rows) < ma_window:
+            continue  # 观察仓历史不足只影响它自己的温度，不进「无足够历史」名单
+        prepared_watch.append((row, rows))
 
     result = {
         "明细": [],
@@ -274,25 +289,31 @@ def holding_heats(
         "窗口": None,
         "代码热度": {},
         "大类热度": [],
-        "样本": f"{len(prepared)}/{len(active)}",
+        "样本": f"0/{len(held)}",
         "跳过": skipped,
     }
-    if not prepared:
+    if not prepared_held and not prepared_watch:
         return result
 
-    # 统一窗口：所有持仓用同一段历史长度，避免新股只有短历史导致口径不一致
-    window = max(ma_window, min(len(rows) for _row, rows in prepared))
+    # 统一窗口：持仓用同一段历史长度，避免新股只有短历史导致口径不一致；
+    # 没有持仓时退化为观察仓之间对齐
+    base = prepared_held or prepared_watch
+    window = max(ma_window, min(len(rows) for _row, rows in base))
     mv_total = 0.0
     weighted = 0.0
-    for row, rows in prepared:
+    covered_held = 0
+    for row, rows in [*prepared_held, *prepared_watch]:
         indicators = kline_indicators(rows, window, ma_window)
         heat = _average_heat(indicators) if indicators else None
         if heat is None:
-            result["跳过"].append(str(row["标的"]))
+            if float(row.get("数量") or 0) > 0:
+                result["跳过"].append(str(row["标的"]))
             continue
         mv = float(row.get("市值_本位") or 0.0)
         weighted += heat * mv
         mv_total += mv
+        if float(row.get("数量") or 0) > 0:
+            covered_held += 1
         result["明细"].append(
             {
                 "代码": str(row["代码"]),
@@ -301,19 +322,20 @@ def holding_heats(
                 "热度": heat,
                 "市值_本位": mv,
                 "历史": len(rows),
+                "观察": float(row.get("数量") or 0) <= 0,
             }
         )
 
     result["窗口"] = window
     if mv_total > 0:
         result["温度"] = clamp(weighted / mv_total)
-    result["样本"] = f"{len(result['明细'])}/{len(active)}"
+    result["样本"] = f"{covered_held}/{len(held)}"
 
     heat_by_code = {item["代码"]: item["热度"] for item in result["明细"]}
     result["代码热度"] = heat_by_code
 
     grouped: dict[str, list[dict]] = {}
-    for row in active:
+    for row in held:
         grouped.setdefault(str(row.get("大类") or ""), []).append(row)
     for name, members in grouped.items():
         covered = [

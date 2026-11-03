@@ -9,12 +9,16 @@ A personal stock thermometer: fetch quotes/FX → compute portfolio heat → sug
 在 `stockfolio/` 目录内运行。Run inside `stockfolio/`.
 
 ```bash
-python -m stockfolio --serve                            # 本机访问 / local
-python -m stockfolio --serve --book example_book.json   # 指定持仓 / custom book
+python -m stockfolio                             # 启动 Web 服务，浏览器打开终端打印的地址
+python -m stockfolio --book example_book.json    # 指定持仓 / custom book
 # 持仓格式见 DATA_FORMAT.md / Format: DATA_FORMAT.md
-python -m stockfolio --check example_book.json          # 离线格式校验 / format check
-python -m stockfolio --ping example_book.json           # 联网取数检查 / network check
+python -m stockfolio --check example_book.json   # 离线格式校验 / format check
+python -m stockfolio --ping example_book.json    # 联网取数检查 / network check
 ```
+
+界面只有 Web 版：不带子命令时直接起服务，`--serve` 仍可显式指定（兼容旧命令）。需要局域网/手机访问时加 `--host 0.0.0.0`，公网请走 HTTPS 反向代理。
+
+Web UI only: running without a subcommand starts the server; `--serve` still works for compatibility. Use `--host 0.0.0.0` for LAN/mobile access, and an HTTPS reverse proxy for the public internet.
 
 ## 密码（可选）Password (optional)
 

@@ -134,6 +134,105 @@ class PayloadTest(unittest.TestCase):
         self.assertTrue(self.app.payload("zh")["auth"])
         self.assertFalse(web.App(EXAMPLE, None).payload("zh")["auth"])
 
+    def test_refresh_watch_only_book_reports_watch(self):
+        """没有持仓（数量全为 0）时不算取价失败，状态是 watch。"""
+        book = {
+            "标题": "watch",
+            "本位币": "CNY",
+            "大类": [{"名称": "A", "比例": 1.0}],
+            "估值": json.loads(EXAMPLE.read_text(encoding="utf-8"))["估值"],
+            "持仓": [
+                {
+                    "标的": "观察",
+                    "代码": "600000.SS",
+                    "大类": "A",
+                    "货币": "CNY",
+                    "数量": 0,
+                    "成本价": 0,
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "book.json"
+            path.write_text(json.dumps(book, ensure_ascii=False), encoding="utf-8")
+            app = web.App(path, None)
+
+            def fake_fetch_all(book, opener=None, base=None):
+                return {h["代码"]: 9.5 for h in book["持仓"]}, {"CNY": 1.0}
+
+            def fake_holdings(enriched, cfg, opener=None):
+                return {
+                    "明细": [],
+                    "温度": None,
+                    "窗口": 250,
+                    "代码热度": {"600000.SS": 42.0},
+                    "大类热度": [],
+                    "样本": "0/0",
+                    "跳过": [],
+                }
+
+            with mock.patch.object(web, "fetch_all", fake_fetch_all), mock.patch.object(
+                web, "benchmark_heats", lambda cfg, opener=None: []
+            ), mock.patch.object(web, "holding_heats", fake_holdings):
+                self.assertTrue(app.refresh())
+
+            payload = app.payload("zh")
+            self.assertEqual(payload["status"]["key"], "watch")
+            self.assertIn("无持仓", payload["status"]["text"])
+            self.assertIsNone(payload["summary"])
+            self.assertEqual(payload["view"]["代码热度"]["600000.SS"], 42.0)
+
+            en = app.payload("en")
+            self.assertEqual(en["status"]["key"], "watch")
+            self.assertIn("No positions", en["status"]["text"])
+
+    def test_refresh_positions_without_quotes_stays_noquote(self):
+        """有持仓但一只都没取到价，仍然是 noquote，不能误报成 watch。"""
+        book = {
+            "标题": "noquote",
+            "本位币": "CNY",
+            "大类": [{"名称": "A", "比例": 1.0}],
+            "估值": json.loads(EXAMPLE.read_text(encoding="utf-8"))["估值"],
+            "持仓": [
+                {
+                    "标的": "持仓",
+                    "代码": "600000.SS",
+                    "大类": "A",
+                    "货币": "CNY",
+                    "数量": 100,
+                    "成本价": 8.0,
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "book.json"
+            path.write_text(json.dumps(book, ensure_ascii=False), encoding="utf-8")
+            app = web.App(path, None)
+
+            def fake_fetch_all(book, opener=None, base=None):
+                return {h["代码"]: None for h in book["持仓"]}, {"CNY": 1.0}
+
+            with mock.patch.object(
+                web, "fetch_all", fake_fetch_all
+            ), mock.patch.object(
+                web, "benchmark_heats", lambda cfg, opener=None: []
+            ), mock.patch.object(
+                web,
+                "holding_heats",
+                lambda enriched, cfg, opener=None: {
+                    "明细": [],
+                    "温度": None,
+                    "窗口": None,
+                    "代码热度": {},
+                    "大类热度": [],
+                    "样本": "0/1",
+                    "跳过": [],
+                },
+            ):
+                self.assertTrue(app.refresh())
+
+            self.assertEqual(app.payload("zh")["status"]["key"], "noquote")
+
     def test_refresh_pipeline_without_network(self):
         calls = {"fetch": 0}
 
@@ -257,6 +356,7 @@ class ServerTest(unittest.TestCase):
         status, _, body = self.request("GET", "/app.js")
         self.assertEqual(status, 200)
         self.assertIn(b"renderSummary", body)
+        self.assertIn(b"renderWatchlist", body)
 
     def test_bad_login_redirects_with_error(self):
         status, headers, _ = self.request(
@@ -345,6 +445,7 @@ class ServerTest(unittest.TestCase):
         status, _, body = self.request("GET", "/", headers={"Cookie": cookie})
         self.assertEqual(status, 200)
         self.assertIn(b'id="app"', body)
+        self.assertIn(b'id="watchlist"', body)
 
     def test_refresh_requires_custom_header(self):
         _, cookie = self.login()
