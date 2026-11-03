@@ -245,58 +245,6 @@
     row.append(holding);
   }
 
-  // ---------- 观察仓：没有持仓，也想看现价和温度 ----------
-
-  function renderWatchlist(payload) {
-    const box = $('watchlist');
-    if (!box) return;
-    box.innerHTML = '';
-    const L = payload.labels;
-    const rows = (payload.enriched || []).filter((row) => row['观察']);
-    if (!rows.length) {
-      box.classList.add('hidden');
-      return;
-    }
-    box.classList.remove('hidden');
-    const heatByCode = payload.view['代码热度'] || {};
-
-    const hint = el('span', 'panel-hint', L['不计入市值与温度']);
-    box.append(panelHead(L['观察仓'], hint));
-
-    const tableWrap = el('div', 'table-wrap');
-    const table = el('table');
-    const thead = el('thead');
-    const headRow = el('tr');
-    for (const heading of [L['标的'], L['大类'], L['货币'], L['现价'], L['温度']]) {
-      headRow.append(el('th', '', heading));
-    }
-    thead.append(headRow);
-    table.append(thead);
-
-    const tbody = el('tbody');
-    for (const row of rows) {
-      const heat = heatByCode[String(row['代码'])];
-      const heatText =
-        heat === null || heat === undefined ? DASH : Number(heat).toFixed(1);
-      const tr = el('tr');
-      tr.append(el('td', '', row['标的']));
-      tr.append(el('td', 'muted', row['大类']));
-      tr.append(el('td', 'muted', row['货币']));
-      tr.append(el('td', '', fmtPx(row['解析现价'])));
-      tr.append(
-        el(
-          'td',
-          heat === null || heat === undefined ? 'muted' : heatClass(heat),
-          heatText
-        )
-      );
-      tbody.append(tr);
-    }
-    table.append(tbody);
-    tableWrap.append(table);
-    box.append(tableWrap);
-  }
-
   // ---------- 饼图 ----------
 
   function drawPie(wrap, slices, emptyText) {
@@ -544,8 +492,6 @@
       const tbody = el('tbody');
       for (const row of rows) {
         const quoted = Boolean(row['可汇总']);
-        const hasPrice =
-          row['解析现价'] !== null && row['解析现价'] !== undefined;
         const heat = heatByCode[String(row['代码'])];
         const heatText = heat === null || heat === undefined ? DASH : Number(heat).toFixed(1);
 
@@ -571,19 +517,14 @@
 
         // 观察仓（数量 0）：现价和温度照样展示，只有市值/占比/盈亏是空的
         const tr = el('tr');
-        const tone = quoted || hasPrice ? '' : 'muted';
-        const valueTone = quoted ? '' : 'muted';
-        const nameCell = el('td', tone, row['标的']);
-        if (row['观察']) {
-          nameCell.append(el('span', 'tag tag-watch', L['观察']));
-        }
-        tr.append(nameCell);
+        const tone = quoted ? '' : 'muted';
+        tr.append(el('td', tone, row['标的']));
         tr.append(el('td', tone, row['货币']));
         tr.append(el('td', tone, fmtQty(row['数量'])));
         tr.append(el('td', tone, fmtPx(row['成本价'])));
         tr.append(el('td', tone, fmtPx(row['解析现价'])));
-        tr.append(el('td', valueTone, value));
-        tr.append(el('td', valueTone, share));
+        tr.append(el('td', tone, value));
+        tr.append(el('td', tone, share));
         tr.append(el('td', pnlClass, pnl));
         tr.append(
           el(
@@ -625,7 +566,6 @@
     renderSummary(payload);
     renderValuation(payload);
     renderCharts(payload);
-    renderWatchlist(payload);
     renderCategories(payload);
   }
 

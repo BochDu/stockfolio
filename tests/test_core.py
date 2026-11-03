@@ -231,8 +231,6 @@ class I18nTest(unittest.TestCase):
         self.assertEqual(i18n.t("刷新", "zh"), "刷新")
         self.assertEqual(i18n.t("刷新", "en"), "Refresh")
         self.assertEqual(i18n.t("市值(w)", "en"), "Value(k)")
-        self.assertEqual(i18n.t("观察仓", "en"), "Watchlist")
-        self.assertEqual(i18n.t("观察", "en"), "Watch")
         self.assertEqual(i18n.t("未知键", "en"), "未知键")  # 未注册原样
 
     def test_status_text(self):

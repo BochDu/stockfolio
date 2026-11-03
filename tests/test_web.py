@@ -356,7 +356,6 @@ class ServerTest(unittest.TestCase):
         status, _, body = self.request("GET", "/app.js")
         self.assertEqual(status, 200)
         self.assertIn(b"renderSummary", body)
-        self.assertIn(b"renderWatchlist", body)
 
     def test_bad_login_redirects_with_error(self):
         status, headers, _ = self.request(
@@ -445,7 +444,6 @@ class ServerTest(unittest.TestCase):
         status, _, body = self.request("GET", "/", headers={"Cookie": cookie})
         self.assertEqual(status, 200)
         self.assertIn(b'id="app"', body)
-        self.assertIn(b'id="watchlist"', body)
 
     def test_refresh_requires_custom_header(self):
         _, cookie = self.login()
